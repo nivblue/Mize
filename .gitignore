@@ -2,12 +2,12 @@
 bin/
 obj/
 # Local SQLite database (docker-compose mount)
-data/
+/data/
 # IDE
 .vs/
 .idea/
 *.user
 # Local NuGet package cache used by the docker-compose tests service
-.nuget/
+/.nuget/
 # Database folder of docker-compose.local.yml
-data-local/
+/data-local/
