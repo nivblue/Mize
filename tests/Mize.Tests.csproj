@@ -19,6 +19,11 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <!-- Moq: mocks for isolating classes in unit tests. -->
     <PackageReference Include="Moq" Version="4.20.72" />
+    <!-- Coverlet: code-coverage collector (the .NET counterpart of JaCoCo); only active when the collect option "XPlat Code Coverage" is passed to dotnet test. -->
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <!-- WebApplicationFactory: boots the real API in memory for API and integration tests. -->
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
   </ItemGroup>

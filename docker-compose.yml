@@ -21,4 +21,34 @@ services:
       NUGET_PACKAGES: /src/.nuget/packages
     volumes:
       - .:/src
-    command: dotnet test Mize.sln --nologo
+    # "console;verbosity=detailed" prints every test with its result and duration, not just the final summary.
+    command: ["dotnet", "test", "Mize.sln", "--nologo", "--logger", "console;verbosity=detailed"]
+
+  # Code coverage of the non-E2E tests (unit + API + integration). Plain command, no script needed:
+  #   docker-compose --profile coverage run --rm coverage
+  # Prints a text summary and writes an HTML report to ./coverage/report/index.html (git-ignored).
+  # With a local .NET SDK the same three steps work directly:
+  #   dotnet test Mize.sln --settings tests/coverage.runsettings --collect:"XPlat Code Coverage" --results-directory coverage/raw
+  #   dotnet tool restore        (installs ReportGenerator, pinned in .config/dotnet-tools.json)
+  #   dotnet reportgenerator "-reports:coverage/raw/**/coverage.cobertura.xml" -targetdir:coverage/report -reporttypes:"Html;TextSummary"
+  coverage:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    profiles: ["coverage"]
+    working_dir: /src
+    environment:
+      NUGET_PACKAGES: /src/.nuget/packages
+      # VSTest's coverage collector fails its temp-folder permission self-check inside this throwaway container
+      # (errno 22 on /tmp); the check only guards a temp directory, so it is skipped here.
+      VSTEST_DISABLE_ARTIFACTS_DIRECTORY_VERIFICATION: "1"
+    volumes:
+      - .:/src
+    command:
+      - bash
+      - -c
+      - >-
+        rm -rf coverage
+        && dotnet test Mize.sln --nologo --settings tests/coverage.runsettings --collect:"XPlat Code Coverage" --results-directory coverage/raw --logger "console;verbosity=minimal"
+        && dotnet tool restore
+        && dotnet reportgenerator "-reports:coverage/raw/**/coverage.cobertura.xml" "-targetdir:coverage/report" "-reporttypes:Html;TextSummary" "-verbosity:Warning"
+        && cat coverage/report/Summary.txt
+        && echo "HTML report: coverage/report/index.html"
