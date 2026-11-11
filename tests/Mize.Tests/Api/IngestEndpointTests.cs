@@ -95,17 +95,17 @@ public class IngestEndpointTests : IDisposable
         Assert.Equal(500m, (await _repo.GetAsync("supplier-1", "res-1", default))!.Price);
     }
 
-    /// <summary>An out-of-order (older) update returns 200 "stale", keeps the stored data and logs a WARN.</summary>
+    /// <summary>An update with an older updatedAtUtc but different details is still applied (200 "updated") and logs a WARN.</summary>
     [Fact]
-    public async Task Post_OlderUpdate_Returns200Stale_KeepsData_AndLogsWarning()
+    public async Task Post_OlderTimestampWithDifferentDetails_StillUpdates_AndLogsWarning()
     {
         await _client.PostAsync(Url, TestData.Json(TestData.Request(price: 450m)));
 
         var response = await _client.PostAsync(Url, TestData.Json(TestData.Request(price: 1m, updatedAtUtc: TestData.UpdatedAt.AddHours(-1))));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("stale", (await ReadJsonAsync(response)).GetProperty("status").GetString());
-        Assert.Equal(450m, (await _repo.GetAsync("supplier-1", "res-1", default))!.Price);
+        Assert.Equal("updated", (await ReadJsonAsync(response)).GetProperty("status").GetString());
+        Assert.Equal(1m, (await _repo.GetAsync("supplier-1", "res-1", default))!.Price);
         Assert.Contains(_factory.Logs.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("out-of-order"));
     }
 

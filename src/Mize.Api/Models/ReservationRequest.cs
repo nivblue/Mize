@@ -24,6 +24,6 @@ public sealed record ReservationRequest
     /// <summary>Total price of the reservation (must be zero or positive).</summary>
     public required decimal Price { get; init; }
 
-    /// <summary>When the supplier last modified the reservation (must be UTC); used to detect stale updates.</summary>
+    /// <summary>When the supplier last modified the reservation (must be UTC).</summary>
     public required DateTimeOffset UpdatedAtUtc { get; init; }
 }

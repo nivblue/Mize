@@ -65,7 +65,7 @@ docker-compose down                # stop it; the data in ./data stays
 ./scripts/ingest.sh reserve                                  # 201 created
 ./scripts/ingest.sh reserve                                  # 200 unchanged: same details, nothing written
 ./scripts/ingest.sh reserve --price 500 --updated-at 2026-07-02T09:00:00Z   # 200 updated
-./scripts/ingest.sh reserve --updated-at 2026-06-01T00:00:00Z               # 200 stale: older than what is stored
+./scripts/ingest.sh reserve --updated-at 2026-06-01T00:00:00Z               # 200 updated: an older timestamp is still applied (logged as a WARN)
 ./scripts/ingest.sh reserve --price -5                       # 400 validation error
 ./scripts/ingest.sh reserve --supplier flood --count 105     # 100 x 201, then 429: the real limit is 100 per 60 s
 ./scripts/ingest.sh stats flood                              # ingested 100, throttled 5
@@ -111,9 +111,8 @@ Body (all fields required; all timestamps must be UTC):
 | HTTP | `status` in body | Meaning |
 |------|------------------|---------|
 | 201 | `created` | New reservation stored. |
-| 200 | `updated` | Same id, different details: record updated. |
+| 200 | `updated` | Same id, different details: record updated (whatever the `updatedAtUtc` is; an older one is logged at WARN). |
 | 200 | `unchanged` | Identical to what is stored: **nothing written**; message says "nothing changed". |
-| 200 | `stale` | Same id but older `updatedAtUtc` than stored: ignored, nothing changed. |
 | 400 | – | Validation failure (RFC 7807 `ValidationProblemDetails` listing the fields). |
 | 415 | – | Content type is not JSON. |
 | 429 | – | Supplier exceeded the rate limit. Includes a `Retry-After` header (seconds). |
@@ -128,11 +127,11 @@ Success body: `{ "status": "created", "supplierId": "...", "reservationId": "...
   "supplierId": "acme",
   "ingested": 99,
   "throttled": 9,
-  "breakdown": { "created": 98, "updated": 0, "unchanged": 1, "stale": 1 }
+  "breakdown": { "created": 98, "updated": 0, "unchanged": 1 }
 }
 ```
 
-* `ingested` = `created + updated + unchanged` (accepted requests that were ingested). `stale` is reported in the breakdown only.
+* `ingested` = `created + updated + unchanged` (accepted requests that were ingested).
 * `throttled` = requests rejected with 429.
 * An unknown supplier returns **200 with zeros** (not 404). The supplier id is case-sensitive.
 
@@ -140,8 +139,8 @@ Success body: `{ "status": "created", "supplierId": "...", "reservationId": "...
 
 * **Identity:** a reservation is unique per `(supplierId, reservationId)`; two suppliers may reuse an id.
 * **Exact duplicate:** all of room, check-in, check-out, price and `updatedAtUtc` equal → nothing is written (`unchanged`).
-* **Changed details:** update in place (`updated`) when `updatedAtUtc` is equal or newer.
-* **Out-of-order update:** `updatedAtUtc` strictly older than stored → ignored (`stale`) and logged at **Warning**.
+* **Changed details:** the spec says the existing record is updated, so any difference updates it in place (`updated`), whatever the `updatedAtUtc` is.
+* **Out-of-order timestamp:** an update whose `updatedAtUtc` is older than the stored one is **still applied** (the spec has no exception to "different details → update") but is logged at **Warning**, because it usually means a late or replayed message.
 * **Rate limit:** more than 100 *accepted* requests from one supplier within any rolling 60 seconds → further requests get 429 until the window clears.
   * The window is exact and rolling (a queue of timestamps per supplier), not fixed buckets.
   * Rejected (429) requests are **not** counted, so a supplier recovers as soon as old requests age out.
@@ -158,7 +157,7 @@ Each choice below was made together with the project owner.
 | Rate-limit & stats state | In-memory | Simple and fast; exact rolling window. Trade-off: resets on restart, single instance only. |
 | Throttled requests and the window | Rejected requests don't count; 429 + `Retry-After` | Supplier recovers as soon as the window clears; standard HTTP semantics. |
 | Response codes | 201 / 200 / 200 with a `status` field | Makes "nothing changed" explicit in the body. |
-| Stale update | Ignore + Warning, status `stale` | Late-arriving messages must not overwrite newer data. |
+| Older `updatedAtUtc` | Applied like any other update, logged at Warning | The specification says different details always update; no special case and no way for a bad timestamp to block a record. |
 | Identity & stats | Per `(supplierId, reservationId)`; ingested = created+updated+unchanged | Avoids cross-supplier collisions. |
 | Validation | Strict | Bad data never reaches the database. |
 | Solution layout | One API project + one test project | Compact; right-sized for this scope. |
@@ -220,7 +219,7 @@ tests/
 Build output lives in `src/bin`, `src/obj`, `tests/bin` and `tests/obj` (git-ignored). The `tests` service keeps its
 NuGet package cache in `./.nuget` (git-ignored, via `NUGET_PACKAGES`) so nothing is stored outside the repo.
 
-Request flow for `POST /ingest`: model binding → `ReservationRequestValidator` (400) → `IRateLimiter` (429) → `ReservationService` (insert / unchanged / stale / update) → `ISupplierStatsTracker` → response.
+Request flow for `POST /ingest`: model binding → `ReservationRequestValidator` (400) → `IRateLimiter` (429) → `ReservationService` (insert / unchanged / update) → `ISupplierStatsTracker` → response.
 
 ## Logging
 
@@ -231,7 +230,7 @@ All classes depend only on `ILogger<T>`. The one place that names a provider is 
 |-----------|-------|
 | Reservation created / updated | Information |
 | Exact duplicate (unchanged) | Information |
-| **Stale (out-of-order) update** | **Warning** |
+| **Out-of-order update** (older `updatedAtUtc`, still applied) | **Warning** |
 | Throttled (429) | Warning |
 | Validation failure / unbindable payload (400) | Warning |
 | Unexpected exception / database failure (500) | Error |
@@ -310,7 +309,7 @@ The script exits non-zero if anything requested fails. Every run lists each test
 
 * **Unit:** validator, rate limiter (fake clock, concurrency), stats tracker, service (mocked repository, log levels, write gate), repository and initializer (real temp SQLite file), connection factory, controller (mocked collaborators), `Reservation`, `ProblemResults` and `ApiBehaviorConfiguration`.
 * **API:** every response of both endpoints over HTTP: 201/200 success variants, 400 (business rules, missing property, malformed JSON, wrong type, empty body), 415, 405, 404, 429 with `Retry-After`, 500, plus log-level assertions.
-* **Integration:** the full flow against a real SQLite file: create, duplicate, update, stale with database checks at each step, the real 100-request limit and window clearing (fake clock), parallel duplicates, per-supplier isolation, and data surviving a restart.
+* **Integration:** the full flow against a real SQLite file: create, duplicate, update, older timestamp (still updated) with database checks at each step, the real 100-request limit and window clearing (fake clock), parallel duplicates, per-supplier isolation, and data surviving a restart.
 * **End-to-end:** `docker-compose.e2e.yaml` builds the production image and starts it (own project name, own `./data-e2e` folder), then a test-runner container calls it over the compose network. Tests verify what was really persisted by reading the SQLite file (read-only) through the shared volume. The throttling test really sends 100 + 1 requests and waits for the true 60-second window to clear (hence the one minute). Each test uses a fresh supplier id so tests never share rate-limit windows. The E2E project is deliberately **not** in `Mize.sln`, which is how "with or without E2E" works. The test host console logs are silenced in API/integration tests; logs are captured in memory and asserted on instead.
 * **Independent database check (`sqlite3-verify`):** after the E2E tests, a second container with the stand-alone `sqlite3` program (image `keinos/sqlite3`, pinned to 3.54.1; sqlite.org publishes no Docker image, so this is a widely used community one) opens the file the API wrote, read-only. It checks `PRAGMA integrity_check`, that rows exist, that the primary key is `(SupplierId, ReservationId)`, that no row has a negative price or `checkOut <= checkIn`, and that every timestamp is stored as UTC. This proves the file is a valid, portable SQLite database for a different SQLite build than the one bundled in .NET. It is a separate step because `docker-compose up --abort-on-container-exit` stops all containers the moment the test runner exits; `run-tests.sh --e2e` chains the two. It was also checked against a deliberately bad database to confirm it fails.
 * **What E2E does not cover:** restarting the container (the test runner cannot control Docker). "Data survives a restart" is covered by an integration test.

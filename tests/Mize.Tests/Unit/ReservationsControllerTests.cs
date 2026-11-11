@@ -49,11 +49,10 @@ public class ReservationsControllerTests
         _stats.Verify(s => s.RecordOutcome("supplier-1", IngestStatus.Created), Times.Once);
     }
 
-    /// <summary>Updated, unchanged and stale outcomes all yield HTTP 200 with the matching status and a message.</summary>
+    /// <summary>Updated and unchanged outcomes both yield HTTP 200 with the matching status and a message.</summary>
     [Theory]
     [InlineData(IngestStatus.Updated)]
     [InlineData(IngestStatus.Unchanged)]
-    [InlineData(IngestStatus.Stale)]
     public async Task Ingest_NonCreated_Returns200WithStatus(IngestStatus status)
     {
         ServiceReturns(status);
@@ -125,7 +124,7 @@ public class ReservationsControllerTests
     [Fact]
     public void GetStats_ReturnsTrackerSnapshot()
     {
-        var snapshot = new SupplierStats("s", 5, 2, new IngestBreakdown(3, 1, 1, 0));
+        var snapshot = new SupplierStats("s", 5, 2, new IngestBreakdown(3, 1, 1));
         _stats.Setup(s => s.Get("s")).Returns(snapshot);
 
         var result = _controller.GetStats("s");

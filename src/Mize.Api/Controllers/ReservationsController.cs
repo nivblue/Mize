@@ -45,7 +45,7 @@ public sealed class ReservationsController : ControllerBase
     }
 
     /// <summary>
-    /// <c>POST /api/reservations/ingest</c>. Returns 201 (created), 200 (updated / unchanged / stale, with a
+    /// <c>POST /api/reservations/ingest</c>. Returns 201 (created), 200 (updated / unchanged, with a
     /// <c>status</c> field), 400 (invalid payload) or 429 (rate limit exceeded, with <c>Retry-After</c>).
     /// </summary>
     /// <param name="request">The reservation payload.</param>
@@ -104,7 +104,6 @@ public sealed class ReservationsController : ControllerBase
         IngestStatus.Created => "Reservation created.",
         IngestStatus.Updated => "Reservation updated with the new details.",
         IngestStatus.Unchanged => "Reservation already exists with identical details; nothing changed.",
-        IngestStatus.Stale => "Ignored: the stored reservation is newer than this update; nothing changed.",
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown ingest status.")
     };
 }

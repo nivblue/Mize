@@ -17,23 +17,22 @@ public class InMemorySupplierStatsTrackerTests
         Assert.Equal("nobody", stats.SupplierId);
         Assert.Equal(0, stats.Ingested);
         Assert.Equal(0, stats.Throttled);
-        Assert.Equal(new IngestBreakdown(0, 0, 0, 0), stats.Breakdown);
+        Assert.Equal(new IngestBreakdown(0, 0, 0), stats.Breakdown);
     }
 
-    /// <summary>Ingested is created + updated + unchanged; stale is only in the breakdown.</summary>
+    /// <summary>Ingested is created + updated + unchanged, and the breakdown shows each.</summary>
     [Fact]
-    public void RecordOutcome_CountsIngestedAsCreatedUpdatedUnchanged_ExcludingStale()
+    public void RecordOutcome_CountsIngestedAsCreatedUpdatedUnchanged()
     {
         _tracker.RecordOutcome("s", IngestStatus.Created);
         _tracker.RecordOutcome("s", IngestStatus.Created);
         _tracker.RecordOutcome("s", IngestStatus.Updated);
         _tracker.RecordOutcome("s", IngestStatus.Unchanged);
-        _tracker.RecordOutcome("s", IngestStatus.Stale);
 
         var stats = _tracker.Get("s");
 
         Assert.Equal(4, stats.Ingested);
-        Assert.Equal(new IngestBreakdown(2, 1, 1, 1), stats.Breakdown);
+        Assert.Equal(new IngestBreakdown(2, 1, 1), stats.Breakdown);
         Assert.Equal(0, stats.Throttled);
     }
 

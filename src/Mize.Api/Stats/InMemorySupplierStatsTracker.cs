@@ -23,9 +23,6 @@ public sealed class InMemorySupplierStatsTracker : ISupplierStatsTracker
         /// <summary>Number of unchanged outcomes.</summary>
         public long Unchanged;
 
-        /// <summary>Number of stale outcomes.</summary>
-        public long Stale;
-
         /// <summary>Number of throttled requests.</summary>
         public long Throttled;
     }
@@ -41,7 +38,6 @@ public sealed class InMemorySupplierStatsTracker : ISupplierStatsTracker
                 case IngestStatus.Created: counters.Created++; break;
                 case IngestStatus.Updated: counters.Updated++; break;
                 case IngestStatus.Unchanged: counters.Unchanged++; break;
-                case IngestStatus.Stale: counters.Stale++; break;
                 default: throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown ingest status.");
             }
         }
@@ -62,7 +58,7 @@ public sealed class InMemorySupplierStatsTracker : ISupplierStatsTracker
     {
         if (!_counters.TryGetValue(supplierId, out var counters))
         {
-            return new SupplierStats(supplierId, 0, 0, new IngestBreakdown(0, 0, 0, 0));
+            return new SupplierStats(supplierId, 0, 0, new IngestBreakdown(0, 0, 0));
         }
 
         lock (counters.Gate)
@@ -72,7 +68,7 @@ public sealed class InMemorySupplierStatsTracker : ISupplierStatsTracker
                 supplierId,
                 ingested,
                 counters.Throttled,
-                new IngestBreakdown(counters.Created, counters.Updated, counters.Unchanged, counters.Stale));
+                new IngestBreakdown(counters.Created, counters.Updated, counters.Unchanged));
         }
     }
 }

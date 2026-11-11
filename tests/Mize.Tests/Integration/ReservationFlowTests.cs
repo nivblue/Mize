@@ -53,7 +53,7 @@ public class ReservationFlowTests : IDisposable
         Assert.Equal(TestData.Reservation(), await LoadAsync());
     }
 
-    /// <summary>The full lifecycle: create → duplicate (unchanged) → change (updated) → older (stale), checking the DB at each step.</summary>
+    /// <summary>The full lifecycle: create → duplicate (unchanged) → change (updated) → older timestamp with new details (still updated, WARN), checking the DB at each step.</summary>
     [Fact]
     public async Task Ingest_FullLifecycle_BehavesAsSpecified()
     {
@@ -76,18 +76,19 @@ public class ReservationFlowTests : IDisposable
         Assert.Equal("room-2", stored.RoomId);
         Assert.Equal(1, await CountRowsAsync());
 
-        // 4. older update -> stale, database untouched, WARN logged
-        var stale = await _client.PostAsync(IngestUrl, TestData.Json(
+        // 4. older timestamp but different details -> still updated (the spec), WARN logged
+        var older = await _client.PostAsync(IngestUrl, TestData.Json(
             TestData.Request(price: 1m, updatedAtUtc: TestData.UpdatedAt.AddHours(-3))));
-        Assert.Contains("stale", await stale.Content.ReadAsStringAsync());
-        Assert.Equal(520.5m, (await LoadAsync())!.Price);
+        Assert.Contains("updated", await older.Content.ReadAsStringAsync());
+        Assert.Equal(1m, (await LoadAsync())!.Price);
+        Assert.Equal(1, await CountRowsAsync());
         Assert.Contains(_factory.Logs.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning && e.Message.Contains("out-of-order"));
 
         // 5. stats reflect all four requests
         var stats = (await _client.GetFromJsonAsync<SupplierStats>("/api/reservations/stats/supplier-1"))!;
-        Assert.Equal(3, stats.Ingested);
+        Assert.Equal(4, stats.Ingested);
         Assert.Equal(0, stats.Throttled);
-        Assert.Equal(new IngestBreakdown(1, 1, 1, 1), stats.Breakdown);
+        Assert.Equal(new IngestBreakdown(1, 2, 1), stats.Breakdown);
     }
 
     /// <summary>Two suppliers can use the same reservationId without interfering.</summary>

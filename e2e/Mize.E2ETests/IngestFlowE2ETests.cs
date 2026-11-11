@@ -75,9 +75,9 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
         Assert.Equal("room-7", row.RoomId);
     }
 
-    /// <summary>An out-of-order (older) update returns 200 "stale" and leaves the stored row alone.</summary>
+    /// <summary>Different details with an older updatedAtUtc are still applied: 200 "updated" and the row changes.</summary>
     [Fact]
-    public async Task Ingest_OlderUpdate_Returns200Stale_AndKeepsTheRow()
+    public async Task Ingest_OlderTimestampWithDifferentDetails_StillUpdatesTheRow()
     {
         var supplier = E2EFixture.NewSupplierId();
         await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 450m));
@@ -86,8 +86,8 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
             Payload.Reservation(supplier, "r1", price: 1m, updatedAtUtc: "2026-06-01T00:00:00Z"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("stale", await StatusOf(response));
-        Assert.Equal(450m, (await _api.ReadRowAsync(supplier, "r1"))!.Price);
+        Assert.Equal("updated", await StatusOf(response));
+        Assert.Equal(1m, (await _api.ReadRowAsync(supplier, "r1"))!.Price);
     }
 
     /// <summary>Two suppliers may use the same reservationId without affecting each other.</summary>
@@ -170,7 +170,7 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
         Assert.Equal(0, stats.GetProperty("throttled").GetInt32());
     }
 
-    /// <summary>Stats count created, unchanged, updated and stale outcomes; invalid requests are not counted.</summary>
+    /// <summary>Stats count created, unchanged and updated outcomes (an older timestamp with new details counts as updated); invalid requests are not counted.</summary>
     [Fact]
     public async Task Stats_ReflectEveryOutcome()
     {
@@ -178,17 +178,16 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
         await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 1m));                                          // created
         await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 1m));                                          // unchanged
         await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 2m, updatedAtUtc: "2026-07-02T00:00:00Z"));    // updated
-        await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 3m, updatedAtUtc: "2026-06-01T00:00:00Z"));    // stale
+        await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 3m, updatedAtUtc: "2026-06-01T00:00:00Z"));    // updated (older timestamp)
         await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r2", price: -1m));                                         // invalid
 
         var stats = await _api.Client.GetFromJsonAsync<JsonElement>($"/api/reservations/stats/{supplier}");
 
-        Assert.Equal(3, stats.GetProperty("ingested").GetInt32());
+        Assert.Equal(4, stats.GetProperty("ingested").GetInt32());
         Assert.Equal(0, stats.GetProperty("throttled").GetInt32());
         var breakdown = stats.GetProperty("breakdown");
         Assert.Equal(1, breakdown.GetProperty("created").GetInt32());
         Assert.Equal(1, breakdown.GetProperty("unchanged").GetInt32());
-        Assert.Equal(1, breakdown.GetProperty("updated").GetInt32());
-        Assert.Equal(1, breakdown.GetProperty("stale").GetInt32());
+        Assert.Equal(2, breakdown.GetProperty("updated").GetInt32());
     }
 }

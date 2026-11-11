@@ -10,8 +10,5 @@ public enum IngestStatus
     Updated,
 
     /// <summary>The reservation already existed with identical details; nothing was written.</summary>
-    Unchanged,
-
-    /// <summary>The incoming <c>updatedAtUtc</c> was older than the stored one; the request was ignored.</summary>
-    Stale
+    Unchanged
 }

@@ -5,7 +5,7 @@ namespace Mize.Api.Services;
 
 /// <summary>
 /// Implements the ingest rules. Logging levels: created / updated / unchanged = Information,
-/// stale update = Warning. Must be registered as a singleton because it owns the write gate.
+/// out-of-order update (older updatedAtUtc, still applied) = Warning. Must be registered as a singleton because it owns the write gate.
 /// </summary>
 public sealed class ReservationService : IReservationService
 {
@@ -52,19 +52,24 @@ public sealed class ReservationService : IReservationService
                 return IngestStatus.Unchanged;
             }
 
+            await _repository.UpdateAsync(incoming, cancellationToken);
+
+            // The specification says different details always update the record, so an older updatedAtUtc is still
+            // applied. It is unusual (a late or replayed message), so it is logged at Warning.
             if (incoming.UpdatedAtUtc < existing.UpdatedAtUtc)
             {
                 _logger.LogWarning(
-                    "Ignoring out-of-order update for reservation {ReservationId} of supplier {SupplierId}: " +
-                    "incoming updatedAtUtc {IncomingUpdatedAtUtc:O} is older than stored {StoredUpdatedAtUtc:O}",
+                    "Applied out-of-order update for reservation {ReservationId} of supplier {SupplierId}: " +
+                    "incoming updatedAtUtc {IncomingUpdatedAtUtc:O} is older than the previously stored {StoredUpdatedAtUtc:O}",
                     incoming.ReservationId, incoming.SupplierId, incoming.UpdatedAtUtc, existing.UpdatedAtUtc);
-                return IngestStatus.Stale;
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Updated reservation {ReservationId} for supplier {SupplierId}",
+                    incoming.ReservationId, incoming.SupplierId);
             }
 
-            await _repository.UpdateAsync(incoming, cancellationToken);
-            _logger.LogInformation(
-                "Updated reservation {ReservationId} for supplier {SupplierId}",
-                incoming.ReservationId, incoming.SupplierId);
             return IngestStatus.Updated;
         }
         finally

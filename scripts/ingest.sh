@@ -43,7 +43,7 @@ Things to try (the API must be running):
   ./scripts/ingest.sh reserve                                  -> 201 created
   ./scripts/ingest.sh reserve                                  -> 200 unchanged (same details: nothing written)
   ./scripts/ingest.sh reserve --price 500 --updated-at 2026-07-02T09:00:00Z   -> 200 updated
-  ./scripts/ingest.sh reserve --updated-at 2026-06-01T00:00:00Z               -> 200 stale (older than stored)
+  ./scripts/ingest.sh reserve --updated-at 2026-06-01T00:00:00Z               -> 200 updated (an older timestamp is still applied; the server logs a WARN)
   ./scripts/ingest.sh reserve --price -5                       -> 400 (validation error)
   ./scripts/ingest.sh reserve --supplier flood --count 105     -> 100 x 201, then 429 (rate limit: 100 per 60 s)
   ./scripts/ingest.sh stats flood                              -> ingested 100, throttled 5

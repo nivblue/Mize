@@ -60,7 +60,7 @@ public class StatsEndpointTests : IDisposable
         Assert.Equal(2, stats.Breakdown.Created);
     }
 
-    /// <summary>The breakdown separates created, updated, unchanged and stale outcomes.</summary>
+    /// <summary>The breakdown separates created, updated and unchanged outcomes (an older timestamp with new details counts as updated).</summary>
     [Fact]
     public async Task Get_Breakdown_SeparatesOutcomes()
     {
@@ -69,13 +69,13 @@ public class StatsEndpointTests : IDisposable
         await client.PostAsync(IngestUrl, TestData.Json(TestData.Request(price: 1m)));                                                     // created
         await client.PostAsync(IngestUrl, TestData.Json(TestData.Request(price: 1m)));                                                     // unchanged
         await client.PostAsync(IngestUrl, TestData.Json(TestData.Request(price: 2m, updatedAtUtc: TestData.UpdatedAt.AddHours(1))));       // updated
-        await client.PostAsync(IngestUrl, TestData.Json(TestData.Request(price: 3m, updatedAtUtc: TestData.UpdatedAt.AddHours(-1))));      // stale
+        await client.PostAsync(IngestUrl, TestData.Json(TestData.Request(price: 3m, updatedAtUtc: TestData.UpdatedAt.AddHours(-1))));      // updated (older timestamp)
 
         var stats = (await client.GetFromJsonAsync<SupplierStats>("/api/reservations/stats/supplier-1"))!;
         second.Dispose();
 
-        Assert.Equal(3, stats.Ingested);
-        Assert.Equal(new IngestBreakdown(1, 1, 1, 1), stats.Breakdown);
+        Assert.Equal(4, stats.Ingested);
+        Assert.Equal(new IngestBreakdown(1, 2, 1), stats.Breakdown);
     }
 
     /// <summary>Stats are kept per supplier.</summary>

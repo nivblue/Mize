@@ -6,8 +6,8 @@ namespace Mize.Api.Services;
 public interface IReservationService
 {
     /// <summary>
-    /// Ingests a validated reservation: inserts it if new, ignores exact duplicates, ignores stale
-    /// (older <c>updatedAtUtc</c>) updates, and otherwise updates the stored record.
+    /// Ingests a validated reservation: inserts it if new, ignores exact duplicates (nothing is written), and
+    /// otherwise updates the stored record.
     /// </summary>
     /// <param name="request">The validated request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

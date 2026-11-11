@@ -69,7 +69,7 @@ public class ReservationServiceTests
         Assert.Equal(LogLevel.Information, Assert.Single(_logger.Entries).Level);
     }
 
-    /// <summary>Different details with the SAME updatedAtUtc still update (only strictly older is stale).</summary>
+    /// <summary>Different details with the SAME updatedAtUtc still update (the timestamp never blocks an update).</summary>
     [Fact]
     public async Task Ingest_ChangedDetailsSameTimestamp_Updates()
     {
@@ -80,20 +80,24 @@ public class ReservationServiceTests
         Assert.Equal(IngestStatus.Updated, status);
     }
 
-    /// <summary>An older updatedAtUtc is ignored (no write) and logged at WARNING.</summary>
+    /// <summary>
+    /// Different details with an OLDER updatedAtUtc are still applied (the spec: different details update the record),
+    /// and the out-of-order timestamp is logged at WARNING.
+    /// </summary>
     [Fact]
-    public async Task Ingest_OlderTimestamp_ReturnsStale_DoesNotWrite_AndLogsWarning()
+    public async Task Ingest_OlderTimestampWithDifferentDetails_StillUpdates_AndLogsWarning()
     {
-        StoredIs(TestData.Reservation());
+        StoredIs(TestData.Reservation(price: 450m));
         var older = TestData.Request(price: 999m, updatedAtUtc: TestData.UpdatedAt.AddMinutes(-5));
 
         var status = await _service.IngestAsync(older, CancellationToken.None);
 
-        Assert.Equal(IngestStatus.Stale, status);
+        Assert.Equal(IngestStatus.Updated, status);
+        _repo.Verify(r => r.UpdateAsync(It.Is<Reservation>(x => x.Price == 999m), It.IsAny<CancellationToken>()), Times.Once);
         _repo.Verify(r => r.InsertAsync(It.IsAny<Reservation>(), It.IsAny<CancellationToken>()), Times.Never);
-        _repo.Verify(r => r.UpdateAsync(It.IsAny<Reservation>(), It.IsAny<CancellationToken>()), Times.Never);
         var entry = Assert.Single(_logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("out-of-order", entry.Message);
         Assert.Contains("res-1", entry.Message);
         Assert.Contains("supplier-1", entry.Message);
     }
