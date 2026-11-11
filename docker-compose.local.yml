@@ -19,3 +19,16 @@ services:
     volumes:
       # SQLite file ends up in ./data-local/mize.db on your machine; delete the folder to start fresh.
       - ./data-local:/data
+
+  # Stand-alone sqlite3 shell on the API's database file (opt-in "tools" profile, so `up` does not start it):
+  #   docker-compose -f docker-compose.local.yml run --rm sqlite3                       interactive shell, read-only
+  #   docker-compose -f docker-compose.local.yml run --rm sqlite3 -readonly /data/mize.db "SELECT * FROM Reservations;"
+  # Remove -readonly below if you want to edit rows by hand. sqlite.org publishes no Docker image;
+  # keinos/sqlite3 is a widely used community image, pinned to a version.
+  sqlite3:
+    image: keinos/sqlite3:3.54.1
+    profiles: ["tools"]
+    entrypoint: ["/usr/bin/sqlite3"]
+    volumes:
+      - ./data-local:/data
+    command: ["-readonly", "/data/mize.db"]

@@ -11,3 +11,8 @@ obj/
 /.nuget/
 # Database folder of docker-compose.local.yml
 /data-local/
+/data-e2e/
+# Coverage output (see the coverage service in docker-compose.yml)
+/coverage/
+# macOS
+.DS_Store

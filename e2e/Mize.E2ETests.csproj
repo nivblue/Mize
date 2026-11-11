@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- End-to-end tests: black-box HTTP tests against a RUNNING API (the real Docker image).
+       Deliberately NOT referenced by Mize.sln, so `dotnet test Mize.sln` never needs a running API.
+       Run them through the e2e or all options of ./scripts/run-tests.sh. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Mize.E2ETests</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Exact versions, same as the other test project. No reference to the API project: tests only speak HTTP. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Used only to read the API's SQLite file (read-only) and verify what was really persisted. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

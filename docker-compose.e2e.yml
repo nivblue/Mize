@@ -1,0 +1,60 @@
+# End-to-end tests against the REAL Docker image. Run through ./scripts/run-tests.sh --e2e (or --all), or directly:
+#   docker-compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-tests
+#   docker-compose -f docker-compose.e2e.yml --profile verify run --rm sqlite3-verify     (optional, see below)
+#   docker-compose -f docker-compose.e2e.yml down
+# Uses its own project name and its own database folder (./data-e2e), so it never touches your other data.
+name: mize-e2e
+
+services:
+  # The API, built from the production Dockerfile with the production settings (rate limit 100 per 60 s).
+  api:
+    build: .
+    environment:
+      ConnectionStrings__Reservations: "Data Source=/data/mize.db"
+    volumes:
+      - ./data-e2e:/data
+
+  # Test runner: calls the API over the compose network and reads the SQLite file (read-only) to verify persistence.
+  e2e-tests:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    depends_on:
+      - api
+    working_dir: /src/e2e
+    environment:
+      E2E_BASE_URL: "http://api:8080"
+      E2E_DATABASE_PATH: "/data/mize.db"
+      NUGET_PACKAGES: /src/.nuget/packages
+    volumes:
+      - .:/src
+      - ./data-e2e:/data:ro
+    command: ["dotnet", "test", "Mize.E2ETests.csproj", "--nologo", "--logger", "console;verbosity=detailed"]
+
+  # Independent check of the database file the API wrote, using the stand-alone sqlite3 program (a different SQLite
+  # build than the one bundled in .NET). Run it AFTER the tests, while ./data-e2e still exists (opt-in "verify" profile):
+  #   docker-compose -f docker-compose.e2e.yml --profile verify run --rm sqlite3-verify
+  # Note: sqlite.org publishes no Docker image; keinos/sqlite3 is a widely used community image, pinned to a version.
+  sqlite3-verify:
+    image: keinos/sqlite3:3.54.1
+    profiles: ["verify"]
+    entrypoint: ["sh", "-c"]
+    volumes:
+      - ./data-e2e:/data:ro
+    command:
+      - |
+        set -eu
+        db=/data/mize.db
+        q() { sqlite3 -readonly "$$db" "$$1"; }
+        echo "sqlite3 $$(sqlite3 --version | cut -d' ' -f1) inspecting $$db"
+        [ "$$(q 'PRAGMA integrity_check;')" = "ok" ] || { echo "FAIL: integrity_check"; exit 1; }
+        echo "ok   integrity_check"
+        rows=$$(q 'SELECT COUNT(*) FROM Reservations;')
+        [ "$$rows" -gt 0 ] || { echo "FAIL: Reservations is empty"; exit 1; }
+        echo "ok   $$rows reservations stored"
+        [ "$$(q "SELECT COUNT(*) FROM pragma_table_info('Reservations') WHERE pk > 0;")" = "2" ] || { echo "FAIL: primary key is not (SupplierId, ReservationId)"; exit 1; }
+        echo "ok   primary key is (SupplierId, ReservationId)"
+        bad=$$(q "SELECT COUNT(*) FROM Reservations WHERE CAST(Price AS REAL) < 0 OR CheckOut <= CheckIn;")
+        [ "$$bad" = "0" ] || { echo "FAIL: $$bad rows with negative price or checkOut not after checkIn"; exit 1; }
+        echo "ok   no row has a negative price or checkOut <= checkIn"
+        bad=$$(q "SELECT COUNT(*) FROM Reservations WHERE CheckIn NOT LIKE '%Z' OR CheckOut NOT LIKE '%Z' OR UpdatedAtUtc NOT LIKE '%Z';")
+        [ "$$bad" = "0" ] || { echo "FAIL: $$bad rows with non-UTC timestamps"; exit 1; }
+        echo "ok   every timestamp is stored as UTC"
