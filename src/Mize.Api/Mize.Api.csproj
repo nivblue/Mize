@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- API project: targets .NET 8 (LTS) with nullable reference types enforced. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Mize.Api</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Dependencies are pinned to exact versions for reproducible builds. -->
+  <ItemGroup>
+    <!-- Dapper: micro-ORM used for all SQL access. -->
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <!-- Microsoft.Data.Sqlite: ADO.NET provider for SQLite (Dapper runs on top of it). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{F992A7A2-1793-462A-8E59-A98FD6B8894B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mize.Api", "src\Mize.Api\Mize.Api.csproj", "{7314E6BC-DABF-4E35-96DD-B46B03BD53B2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{3856FB92-3BC1-4DDA-8D11-A8654424964E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mize.Tests", "tests\Mize.Tests\Mize.Tests.csproj", "{57AAEEF6-419D-4533-AC30-646EFD7922A4}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7314E6BC-DABF-4E35-96DD-B46B03BD53B2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7314E6BC-DABF-4E35-96DD-B46B03BD53B2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7314E6BC-DABF-4E35-96DD-B46B03BD53B2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7314E6BC-DABF-4E35-96DD-B46B03BD53B2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{57AAEEF6-419D-4533-AC30-646EFD7922A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{57AAEEF6-419D-4533-AC30-646EFD7922A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{57AAEEF6-419D-4533-AC30-646EFD7922A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{57AAEEF6-419D-4533-AC30-646EFD7922A4}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{7314E6BC-DABF-4E35-96DD-B46B03BD53B2} = {F992A7A2-1793-462A-8E59-A98FD6B8894B}
+		{57AAEEF6-419D-4533-AC30-646EFD7922A4} = {3856FB92-3BC1-4DDA-8D11-A8654424964E}
+	EndGlobalSection
+EndGlobal

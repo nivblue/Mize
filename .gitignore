@@ -1,0 +1,9 @@
+# Build output
+bin/
+obj/
+# Local SQLite database (docker-compose mount)
+data/
+# IDE
+.vs/
+.idea/
+*.user

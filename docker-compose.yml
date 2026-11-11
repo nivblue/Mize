@@ -1,0 +1,26 @@
+# `docker compose up --build`            -> runs the API on http://localhost:8080
+# `docker compose run --rm tests`        -> runs all tests inside the .NET SDK image (no local dotnet needed)
+services:
+  # The API. SQLite file is stored in ./data on the host via a bind mount, so data survives container removal.
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__Reservations: "Data Source=/data/mize.db"
+    volumes:
+      - ./data:/data
+
+  # Test runner; only started on demand (profile) so `docker compose up` does not run it.
+  tests:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    profiles: ["tests"]
+    working_dir: /src
+    volumes:
+      - .:/src
+      - nuget-cache:/root/.nuget/packages
+    command: dotnet test Mize.sln --nologo
+
+volumes:
+  # Caches restored NuGet packages between test runs.
+  nuget-cache:
