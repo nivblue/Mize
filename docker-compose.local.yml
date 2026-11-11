@@ -1,0 +1,21 @@
+# For manual testing on your machine:
+#   docker-compose -f docker-compose.local.yml up --build     -> API on http://localhost:5080
+#   docker-compose -f docker-compose.local.yml down           -> stop it
+# Separate from docker-compose.yml: own project name, own port and own database folder (./data-local),
+# so nothing you try here touches the main setup's data.
+name: mize-local
+
+services:
+  # The API, built from the same Dockerfile as the main compose file.
+  api:
+    build: .
+    ports:
+      - "5080:8080"
+    environment:
+      ConnectionStrings__Reservations: "Data Source=/data/mize.db"
+      # Overrides RateLimit:MaxRequests from appsettings.json: the 6th request within 60s gets HTTP 429.
+      # Remove this line (or set 100) to get the real limit back.
+      RateLimit__MaxRequests: "5"
+    volumes:
+      # SQLite file ends up in ./data-local/mize.db on your machine; delete the folder to start fresh.
+      - ./data-local:/data

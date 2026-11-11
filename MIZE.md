@@ -22,11 +22,25 @@ applies a per-supplier rolling rate limit, and reports ingest/throttle statistic
 Requirements: Docker with Compose. **No .NET SDK or SQLite installation is needed.**
 
 ```bash
-docker compose up --build          # API on http://localhost:8080, database in ./data/mize.db
-docker compose run --rm tests      # run all tests inside the .NET SDK image
+docker-compose up --build                        # API on http://localhost:8080, database in ./data/mize.db
+docker-compose --profile tests run --rm tests    # run all tests inside the .NET SDK image
 ```
 
-Try it:
+(Use `docker compose` instead of `docker-compose` if your Docker has the Compose plugin.)
+
+### Manual testing: `docker-compose.local.yml`
+
+A second compose file for trying the API by hand. It is independent of the main one (own project name, own port, own data folder):
+
+```bash
+docker-compose -f docker-compose.local.yml up --build    # API on http://localhost:5080, database in ./data-local/mize.db
+docker-compose -f docker-compose.local.yml down          # stop; delete ./data-local to start fresh
+```
+
+It overrides the rate limit through the environment variable `RateLimit__MaxRequests=5` (no code or `appsettings.json` change), so the
+6th request within 60 seconds returns 429. Remove that line to get the real limit of 100.
+
+Try it (use port 5080 with the local file):
 
 ```bash
 curl -i -X POST http://localhost:8080/api/reservations/ingest \
@@ -130,24 +144,35 @@ Implementation choices made along the way:
 Mize.sln
 Dockerfile                      multi-stage build (SDK -> ASP.NET runtime)
 docker-compose.yml              `api` service (+ ./data mount) and an on-demand `tests` service
+docker-compose.local.yml        manual-testing setup: port 5080, ./data-local, rate limit 5
 MIZE.md                         this file
-src/Mize.Api/
-  Program.cs                    composition root: DI, logging, middleware, schema init
-  Controllers/ReservationsController.cs   the two endpoints (validate -> limit -> ingest -> stats)
-  Models/                       ReservationRequest, Reservation, IngestStatus, IngestResponse, SupplierStats
-  Validation/ReservationRequestValidator.cs
-  RateLimiting/                 IRateLimiter, SlidingWindowRateLimiter, RateLimitOptions
-  Stats/                        ISupplierStatsTracker, InMemorySupplierStatsTracker
-  Services/                     IReservationService, ReservationService (ingest rules + logging)
-  Data/                         SqlQueries, IDbConnectionFactory, SqliteConnectionFactory,
-                                DatabaseInitializer, IReservationRepository, ReservationRepository (Dapper)
-  Infrastructure/               ProblemResults, ApiBehaviorConfiguration (binding-error handling + logging)
-tests/Mize.Tests/
-  Unit/                         one test class per production class
-  Api/                          endpoint tests over real HTTP (in-memory repository)
-  Integration/                  full-flow tests with the real SQLite database
-  Helpers/                      fake clock, log capture, temp database, WebApplicationFactory wrapper
+src/                            configuration and build files live here; code lives in src/Mize.Api/
+  Mize.Api.csproj               project file (dependencies pinned here)
+  appsettings.json              runtime configuration
+  Directory.Build.props         moves bin/ and obj/ to src/bin and src/obj
+  Mize.Api/                     code only
+    Program.cs                    composition root: DI, logging, middleware, schema init
+    Controllers/ReservationsController.cs   the two endpoints (validate -> limit -> ingest -> stats)
+    Models/                       ReservationRequest, Reservation, IngestStatus, IngestResponse, SupplierStats
+    Validation/ReservationRequestValidator.cs
+    RateLimiting/                 IRateLimiter, SlidingWindowRateLimiter, RateLimitOptions
+    Stats/                        ISupplierStatsTracker, InMemorySupplierStatsTracker
+    Services/                     IReservationService, ReservationService (ingest rules + logging)
+    Data/                         SqlQueries, IDbConnectionFactory, SqliteConnectionFactory,
+                                  DatabaseInitializer, IReservationRepository, ReservationRepository (Dapper)
+    Infrastructure/               ProblemResults, ApiBehaviorConfiguration (binding-error handling + logging)
+tests/
+  Mize.Tests.csproj             project file
+  Directory.Build.props         moves bin/ and obj/ to tests/bin and tests/obj
+  Mize.Tests/                   code only
+    Unit/                         one test class per production class
+    Api/                          endpoint tests over real HTTP (in-memory repository)
+    Integration/                  full-flow tests with the real SQLite database
+    Helpers/                      fake clock, log capture, temp database, WebApplicationFactory wrapper
 ```
+
+Build output lives in `src/bin`, `src/obj`, `tests/bin` and `tests/obj` (git-ignored). The `docker-compose` tests service keeps its
+NuGet package cache in `./.nuget` (git-ignored, via `NUGET_PACKAGES`) so nothing is stored outside the repo.
 
 Request flow for `POST /ingest`: model binding → `ReservationRequestValidator` (400) → `IRateLimiter` (429) → `ReservationService` (insert / unchanged / stale / update) → `ISupplierStatsTracker` → response.
 
@@ -169,7 +194,7 @@ Structured properties (`SupplierId`, `ReservationId`, …) are included in each 
 
 ## Configuration
 
-`appsettings.json` (override with environment variables, `__` as separator):
+`src/appsettings.json` (override with environment variables, `__` as separator):
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -195,7 +220,7 @@ All SQL lives in `src/Mize.Api/Data/SqlQueries.cs`, and every statement uses par
 ## Dependencies
 
 Managed with NuGet through the `dotnet` CLI (run inside the Docker SDK image, so nothing is installed locally).
-Versions are pinned exactly in the `.csproj` files; use stable releases only.
+Versions are pinned exactly in the `src/Mize.Api.csproj` and `tests/Mize.Tests.csproj`; use stable releases only.
 
 | Package | Project | Purpose |
 |---------|---------|---------|
@@ -205,11 +230,11 @@ Versions are pinned exactly in the `.csproj` files; use stable releases only.
 | Moq 4.20.72 | Tests | Mocks for unit tests |
 | Microsoft.AspNetCore.Mvc.Testing 8.0.11 | Tests | In-memory API host (`WebApplicationFactory`) |
 
-To add one: `docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 dotnet add src/Mize.Api package <Name> --version <x.y.z>`
+To add one: `docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 dotnet add src/Mize.Api.csproj package <Name> --version <x.y.z>`
 
 ## Tests
 
-98 tests, all passing. Run with `docker compose run --rm tests`.
+98 tests, all passing. Run with `docker-compose --profile tests run --rm tests`.
 
 * **Unit** (`Unit/`): validator, rate limiter (fake clock, concurrency), stats tracker, service (mocked repository, log levels, write gate), repository and initializer (real temp SQLite file), connection factory, controller (mocked collaborators), `Reservation`, `ProblemResults` and `ApiBehaviorConfiguration`.
 * **API** (`Api/`): every response of both endpoints over real HTTP — 201/200 success variants, 400 (business rules, missing property, malformed JSON, wrong type, empty body), 415, 405, 404, 429 with `Retry-After`, 500, plus log-level assertions.

@@ -16,11 +16,9 @@ services:
     image: mcr.microsoft.com/dotnet/sdk:8.0
     profiles: ["tests"]
     working_dir: /src
+    environment:
+      # Keep the NuGet package cache inside the repo (./.nuget, git-ignored) instead of a Docker-managed volume.
+      NUGET_PACKAGES: /src/.nuget/packages
     volumes:
       - .:/src
-      - nuget-cache:/root/.nuget/packages
     command: dotnet test Mize.sln --nologo
-
-volumes:
-  # Caches restored NuGet packages between test runs.
-  nuget-cache:

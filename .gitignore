@@ -7,3 +7,7 @@ data/
 .vs/
 .idea/
 *.user
+# Local NuGet package cache used by the docker-compose tests service
+.nuget/
+# Database folder of docker-compose.local.yml
+data-local/

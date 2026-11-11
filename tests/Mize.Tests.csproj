@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Mize.Api\Mize.Api.csproj" />
+    <ProjectReference Include="..\src\Mize.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,10 @@
+<Project>
+
+  <!-- Build output (bin/) and intermediate files (obj/) go next to the project folder, one level up,
+       to keep the code folders clean. Applies to every project under this folder. -->
+  <PropertyGroup>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+</Project>

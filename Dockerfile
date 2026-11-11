@@ -4,12 +4,15 @@ WORKDIR /src
 
 # Copy only project files first so the restore layer is cached until dependencies change.
 COPY Mize.sln ./
-COPY src/Mize.Api/Mize.Api.csproj src/Mize.Api/
-COPY tests/Mize.Tests/Mize.Tests.csproj tests/Mize.Tests/
+# Directory.Build.props relocates bin/obj, so it must be present before restore writes obj/.
+COPY src/Directory.Build.props src/
+COPY tests/Directory.Build.props tests/
+COPY src/Mize.Api.csproj src/
+COPY tests/Mize.Tests.csproj tests/
 RUN dotnet restore
 
 COPY . .
-RUN dotnet publish src/Mize.Api/Mize.Api.csproj -c Release -o /app/publish --no-restore
+RUN dotnet publish src/Mize.Api.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
