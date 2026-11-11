@@ -23,7 +23,8 @@ Requirements: Docker with Compose. **No .NET SDK or SQLite installation is neede
 
 ```bash
 docker-compose up --build                        # API on http://localhost:8080, database in ./data/mize.db
-docker-compose --profile tests run --rm tests    # run all tests inside the .NET SDK image
+./scripts/run-tests.sh                           # unit + API + integration tests inside the .NET SDK image
+./scripts/run-tests.sh --all --coverage          # everything: coverage report + end-to-end tests (see Tests section)
 ```
 
 (Use `docker compose` instead of `docker-compose` if your Docker has the Compose plugin.)
@@ -35,6 +36,13 @@ A second compose file for trying the API by hand. It is independent of the main 
 ```bash
 docker-compose -f docker-compose.local.yml up --build    # API on http://localhost:5080, database in ./data-local/mize.db
 docker-compose -f docker-compose.local.yml down          # stop; delete ./data-local to start fresh
+```
+
+To look inside the database while you test, the same file has a stand-alone `sqlite3` shell container (opt-in `tools` profile, read-only by default; remove `-readonly` in the compose file to edit rows):
+
+```bash
+docker-compose -f docker-compose.local.yml run --rm sqlite3                  # interactive sqlite3 shell on ./data-local/mize.db
+docker-compose -f docker-compose.local.yml run --rm sqlite3 -readonly /data/mize.db "SELECT * FROM Reservations;"
 ```
 
 It overrides the rate limit through the environment variable `RateLimit__MaxRequests=5` (no code or `appsettings.json` change), so the
@@ -145,6 +153,9 @@ Mize.sln
 Dockerfile                      multi-stage build (SDK -> ASP.NET runtime)
 docker-compose.yml              `api` service (+ ./data mount) and an on-demand `tests` service
 docker-compose.local.yml        manual-testing setup: port 5080, ./data-local, rate limit 5
+docker-compose.e2e.yml          end-to-end test setup: the real image + a test-runner container + sqlite3-verify
+scripts/                        optional helpers: ingest.sh (manual request), run-tests.sh (wrapper around the test commands)
+.config/dotnet-tools.json       pins ReportGenerator (coverage report) as a .NET local tool
 MIZE.md                         this file
 src/                            configuration and build files live here; code lives in src/Mize.Api/
   Mize.Api.csproj               project file (dependencies pinned here)
@@ -161,8 +172,13 @@ src/                            configuration and build files live here; code li
     Data/                         SqlQueries, IDbConnectionFactory, SqliteConnectionFactory,
                                   DatabaseInitializer, IReservationRepository, ReservationRepository (Dapper)
     Infrastructure/               ProblemResults, ApiBehaviorConfiguration (binding-error handling + logging)
+e2e/                            end-to-end tests (own folder so its obj/ and sources never mix with tests/)
+  Mize.E2ETests.csproj          project file (not part of Mize.sln, so the default test run never needs a running API)
+  Directory.Build.props         moves bin/ and obj/ to e2e/bin and e2e/obj
+  Mize.E2ETests/                code only: E2EFixture, Payload, IngestFlowE2ETests, ThrottlingE2ETests
 tests/
   Mize.Tests.csproj             project file
+  coverage.runsettings          Coverlet settings (measures Mize.Api only)
   Directory.Build.props         moves bin/ and obj/ to tests/bin and tests/obj
   Mize.Tests/                   code only
     Unit/                         one test class per production class
@@ -228,17 +244,58 @@ Versions are pinned exactly in the `src/Mize.Api.csproj` and `tests/Mize.Tests.c
 | Microsoft.Data.Sqlite 8.0.11 | Api | SQLite ADO.NET provider |
 | xunit 2.9.2, xunit.runner.visualstudio 2.8.2, Microsoft.NET.Test.Sdk 17.11.1 | Tests | Test framework and runner |
 | Moq 4.20.72 | Tests | Mocks for unit tests |
+| coverlet.collector 6.0.2 | Tests | Code-coverage collector (only active with the coverage option) |
+| xunit, xunit.runner.visualstudio, Microsoft.Test.Sdk, Microsoft.Data.Sqlite | E2E | E2E framework; SQLite only to read the file the API wrote |
 | Microsoft.AspNetCore.Mvc.Testing 8.0.11 | Tests | In-memory API host (`WebApplicationFactory`) |
 
 To add one: `docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 dotnet add src/Mize.Api.csproj package <Name> --version <x.y.z>`
 
 ## Tests
 
-98 tests, all passing. Run with `docker-compose --profile tests run --rm tests`.
+Nothing depends on the scripts: every kind of test runs with standard commands, and `scripts/run-tests.sh` is only an optional
+convenience wrapper around them. Docker is the only requirement; with a local .NET 8 SDK the `dotnet` commands work directly too.
 
-* **Unit** (`Unit/`): validator, rate limiter (fake clock, concurrency), stats tracker, service (mocked repository, log levels, write gate), repository and initializer (real temp SQLite file), connection factory, controller (mocked collaborators), `Reservation`, `ProblemResults` and `ApiBehaviorConfiguration`.
-* **API** (`Api/`): every response of both endpoints over real HTTP — 201/200 success variants, 400 (business rules, missing property, malformed JSON, wrong type, empty body), 415, 405, 404, 429 with `Retry-After`, 500, plus log-level assertions.
-* **Integration** (`Integration/`): full flow against a real SQLite file — create → duplicate → update → stale with database checks at each step, the real 100-request limit and window clearing, parallel duplicates, per-supplier isolation, and data surviving a restart.
+| What | Standard command (Docker) | Directly with a .NET SDK |
+|------|---------------------------|--------------------------|
+| Unit + API + integration (98 tests) | `docker-compose --profile tests run --rm tests` | `dotnet test Mize.sln` |
+| Same, with coverage report | `docker-compose --profile coverage run --rm coverage` | `dotnet test Mize.sln --settings tests/coverage.runsettings --collect:"XPlat Code Coverage" --results-directory coverage/raw`, then `dotnet tool restore`, then `dotnet reportgenerator "-reports:coverage/raw/**/coverage.cobertura.xml" -targetdir:coverage/report -reporttypes:"Html;TextSummary"` |
+| End-to-end (13 tests, about 1 minute) | `docker-compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-tests`, then optionally `docker-compose -f docker-compose.e2e.yml --profile verify run --rm sqlite3-verify`, then `docker-compose -f docker-compose.e2e.yml down` | start the API (`docker-compose up --build`), then `E2E_BASE_URL=http://localhost:8080 E2E_DATABASE_PATH=./data/mize.db dotnet test e2e/Mize.E2ETests.csproj` |
+
+(Use `docker compose` instead of `docker-compose` if your Docker has the Compose plugin.) The optional wrapper adds flags on top:
+
+| Command | Runs | Takes |
+|---------|------|-------|
+| `./scripts/run-tests.sh` | unit + API + integration (98 tests) | a few seconds |
+| `./scripts/run-tests.sh --coverage` | the same, plus a coverage report | a few seconds more |
+| `./scripts/run-tests.sh --e2e` | only the end-to-end tests (13 tests) plus the sqlite3 database check; cleans up `./data-e2e` afterwards | about 1 minute |
+| `./scripts/run-tests.sh --all` | default suite, then end-to-end | about 1 minute |
+| `./scripts/run-tests.sh --all --coverage` | coverage for the default suite, then end-to-end | about 1 minute |
+
+The script exits non-zero if anything requested fails. Every run lists each test with its result and duration.
+
+| Kind | Tests | What is real | What is faked |
+|------|-------|--------------|---------------|
+| Unit (`tests/.../Unit`) | 63 | the class under test | its collaborators, the clock |
+| API (`tests/.../Api`) | 27 | routing, binding, validation, limiter, service, stats, JSON, status codes | repository (in-memory), clock |
+| Integration (`tests/.../Integration`) | 8 | everything incl. Dapper and a real SQLite file, in-process | only the clock |
+| End-to-end (`e2e/`) | 13 | the real Docker image, a real network, the mounted SQLite file, the production settings and the real clock | nothing |
+
+* **Unit:** validator, rate limiter (fake clock, concurrency), stats tracker, service (mocked repository, log levels, write gate), repository and initializer (real temp SQLite file), connection factory, controller (mocked collaborators), `Reservation`, `ProblemResults` and `ApiBehaviorConfiguration`.
+* **API:** every response of both endpoints over HTTP: 201/200 success variants, 400 (business rules, missing property, malformed JSON, wrong type, empty body), 415, 405, 404, 429 with `Retry-After`, 500, plus log-level assertions.
+* **Integration:** the full flow against a real SQLite file: create, duplicate, update, stale with database checks at each step, the real 100-request limit and window clearing (fake clock), parallel duplicates, per-supplier isolation, and data surviving a restart.
+* **End-to-end:** `docker-compose.e2e.yml` builds the production image and starts it (own project name, own `./data-e2e` folder), then a test-runner container calls it over the compose network. Tests verify what was really persisted by reading the SQLite file (read-only) through the shared volume. The throttling test really sends 100 + 1 requests and waits for the true 60-second window to clear (hence the one minute). Each test uses a fresh supplier id so tests never share rate-limit windows. The E2E project is deliberately **not** in `Mize.sln`, which is how "with or without E2E" works. The test host console logs are silenced in API/integration tests; logs are captured in memory and asserted on instead.
+* **Independent database check (`sqlite3-verify`):** after the E2E tests, a second container with the stand-alone `sqlite3` program (image `keinos/sqlite3`, pinned to 3.54.1; sqlite.org publishes no Docker image, so this is a widely used community one) opens the file the API wrote, read-only. It checks `PRAGMA integrity_check`, that rows exist, that the primary key is `(SupplierId, ReservationId)`, that no row has a negative price or `checkOut <= checkIn`, and that every timestamp is stored as UTC. This proves the file is a valid, portable SQLite database for a different SQLite build than the one bundled in .NET. It is a separate step because `docker-compose up --abort-on-container-exit` stops all containers the moment the test runner exits; `run-tests.sh --e2e` chains the two. It was also checked against a deliberately bad database to confirm it fails.
+* **What E2E does not cover:** restarting the container (the test runner cannot control Docker). "Data survives a restart" is covered by an integration test.
+
+### Code coverage
+
+The coverage command above uses **Coverlet** (`coverlet.collector`, the .NET counterpart of JaCoCo) and **ReportGenerator** (a .NET local tool pinned in `.config/dotnet-tools.json`, restored with `dotnet tool restore`). It covers the unit, API and integration tests (never E2E) and measures only the `Mize.Api` assembly (`tests/coverage.runsettings`). Output: a text summary in the console and an HTML report at `coverage/report/index.html` (git-ignored). No minimum threshold is enforced. Current result: 98.5% line, 91.4% branch, 100% method coverage. The few uncovered lines are the failure-cleanup branch of `SqliteConnectionFactory` and an unreachable `default` branch in the controller. Coverage shows which lines ran, not whether the assertions are good.
+
+The coverage service sets `VSTEST_DISABLE_ARTIFACTS_DIRECTORY_VERIFICATION=1` because VSTest's temp-folder permission self-check fails inside the container (it only guards a temp directory).
+
+### Manual request script
+
+`./scripts/ingest.sh` sends one reservation with `curl` (body kept in a variable at the top) and prints the supplier's stats. It targets the local compose API on port 5080 by default (`BASE_URL` overrides).
 
 ## Known limitations
 
