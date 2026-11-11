@@ -52,7 +52,13 @@ public sealed class MizeApiFactory : WebApplicationFactory<Program>
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureLogging(logging => logging.AddProvider(Logs));
+        // Replace the console logger with the in-memory capture: tests assert on logs via Logs, and the
+        // app's JSON console output would only clutter the test run.
+        builder.ConfigureLogging(logging =>
+        {
+            logging.ClearProviders();
+            logging.AddProvider(Logs);
+        });
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<TimeProvider>();
