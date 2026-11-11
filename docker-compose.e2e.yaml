@@ -1,7 +1,8 @@
-# End-to-end tests against the REAL Docker image. Run through ./scripts/run-tests.sh --e2e (or --all), or directly:
-#   docker-compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-tests
-#   docker-compose -f docker-compose.e2e.yml --profile verify run --rm sqlite3-verify     (optional, see below)
-#   docker-compose -f docker-compose.e2e.yml down
+# End-to-end tests against the REAL Docker image, all inside Docker (nothing to install on your machine).
+# Run through ./scripts/run-tests.sh --e2e (or --all), or directly:
+#   docker-compose -f docker-compose.e2e.yaml up --build --abort-on-container-exit --exit-code-from e2e-tests
+#   docker-compose -f docker-compose.e2e.yaml --profile verify run --rm sqlite3-verify     (optional, see below)
+#   docker-compose -f docker-compose.e2e.yaml down
 # Uses its own project name and its own database folder (./data-e2e), so it never touches your other data.
 name: mize-e2e
 
@@ -31,7 +32,7 @@ services:
 
   # Independent check of the database file the API wrote, using the stand-alone sqlite3 program (a different SQLite
   # build than the one bundled in .NET). Run it AFTER the tests, while ./data-e2e still exists (opt-in "verify" profile):
-  #   docker-compose -f docker-compose.e2e.yml --profile verify run --rm sqlite3-verify
+  #   docker-compose -f docker-compose.e2e.yaml --profile verify run --rm sqlite3-verify
   # Note: sqlite.org publishes no Docker image; keinos/sqlite3 is a widely used community image, pinned to a version.
   sqlite3-verify:
     image: keinos/sqlite3:3.54.1

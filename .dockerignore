@@ -3,6 +3,5 @@
 data
 .git
 .nuget
-data-local
 data-e2e
 coverage

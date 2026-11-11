@@ -8,6 +8,9 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>Mize.Tests</RootNamespace>
+    <!-- Makes every dotnet test of this project collect code coverage (the settings file enables the Coverlet collector),
+         with no extra command-line flag. To run once without coverage, pass an empty value: -p:RunSettingsFilePath= -->
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)coverage.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <!-- Test dependencies pinned to exact versions. -->

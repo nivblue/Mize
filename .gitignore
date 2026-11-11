@@ -9,10 +9,10 @@ obj/
 *.user
 # Local NuGet package cache used by the docker-compose tests service
 /.nuget/
-# Database folder of docker-compose.local.yml
-/data-local/
 /data-e2e/
 # Coverage output (see the coverage service in docker-compose.yml)
 /coverage/
 # macOS
 .DS_Store
+# Raw coverage results written by a plain dotnet test
+TestResults/

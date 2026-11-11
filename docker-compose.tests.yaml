@@ -1,0 +1,36 @@
+# Runs all the tests except the end-to-end ones (unit + API + integration), with code coverage, inside the .NET SDK
+# image. Docker is used on purpose: no .NET SDK has to be installed on your machine. This file has ONE service.
+#   docker-compose -f docker-compose.tests.yaml run --rm tests        (or simply: ./scripts/run-tests.sh)
+# The end-to-end tests have their own file: docker-compose.e2e.yaml.
+name: mize-tests
+
+services:
+  # Unit + API + integration tests (never the E2E tests) inside the .NET SDK image.
+  # Code coverage is collected on EVERY test run (tests/Mize.Tests.csproj sets RunSettingsFilePath), and this command
+  # then prints a coverage summary and writes the HTML report to ./coverage/report/index.html (git-ignored).
+  # With a local .NET SDK the same works directly:
+  #   dotnet test Mize.sln                      (collects coverage into tests/TestResults; add -p:RunSettingsFilePath= to turn it off)
+  #   dotnet tool restore                       (installs ReportGenerator, pinned in .config/dotnet-tools.json)
+  #   dotnet reportgenerator "-reports:tests/TestResults/**/coverage.cobertura.xml" -targetdir:coverage/report -reporttypes:"Html;TextSummary"
+  tests:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    working_dir: /src
+    environment:
+      # Keep the NuGet package cache inside the repo (./.nuget, git-ignored) instead of a Docker-managed volume.
+      NUGET_PACKAGES: /src/.nuget/packages
+      # VSTest's coverage collector fails its temp-folder permission self-check inside this throwaway container
+      # (errno 22 on /tmp); the check only guards a temp directory, so it is skipped here.
+      VSTEST_DISABLE_ARTIFACTS_DIRECTORY_VERIFICATION: "1"
+    volumes:
+      - .:/src
+    command:
+      - bash
+      - -c
+      # "console;verbosity=detailed" lists every test with its result and duration, not just the final summary.
+      - >-
+        rm -rf coverage
+        && dotnet test Mize.sln --nologo --results-directory coverage/raw --logger "console;verbosity=detailed"
+        && dotnet tool restore
+        && dotnet reportgenerator "-reports:coverage/raw/**/coverage.cobertura.xml" "-targetdir:coverage/report" "-reporttypes:Html;TextSummary" "-verbosity:Warning"
+        && cat coverage/report/Summary.txt
+        && echo "HTML report: coverage/report/index.html"

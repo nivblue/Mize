@@ -1,0 +1,35 @@
+# Runs the API "like production": the real Docker image with the production settings from src/appsettings.json
+# (rate limit 100 requests per 60 s), restarted automatically, database persisted in ./data on this machine.
+# Everything runs in Docker on purpose: nothing (.NET, SQLite, ...) has to be installed on your machine.
+#   docker-compose up --build -d     -> API on http://localhost:8080   (or simply: ./scripts/run-api.sh)
+#   docker-compose down              -> stop it (the data in ./data stays)
+# The other two compose files: docker-compose.tests.yaml (unit/API/integration tests with coverage) and
+# docker-compose.e2e.yaml (end-to-end tests against the real image).
+name: mize
+
+services:
+  # The API, built from the production Dockerfile.
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ConnectionStrings__Reservations: "Data Source=/data/mize.db"
+    volumes:
+      # The SQLite file ends up in ./data/mize.db on your machine.
+      - ./data:/data
+
+  # Stand-alone sqlite3 shell on the API's database file, so no SQLite install is needed on your machine.
+  # On-demand (the "tools" profile), so `up` does not start a container that would exit immediately:
+  #   docker-compose run --rm sqlite3                                              interactive shell, read-only
+  #   docker-compose run --rm sqlite3 -readonly /data/mize.db "SELECT * FROM Reservations;"
+  # Remove -readonly below if you want to edit rows by hand. sqlite.org publishes no Docker image;
+  # keinos/sqlite3 is a widely used community image, pinned to a version.
+  sqlite3:
+    image: keinos/sqlite3:3.54.1
+    profiles: ["tools"]
+    entrypoint: ["/usr/bin/sqlite3"]
+    volumes:
+      - ./data:/data
+    command: ["-readonly", "/data/mize.db"]

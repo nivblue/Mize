@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Coverlet settings, used by the coverage option of ./scripts/run-tests.sh. Measures only the API assembly (Mize.Api);
+<!-- Coverlet settings, applied to every test run through RunSettingsFilePath in Mize.Tests.csproj. Measures only the API assembly (Mize.Api);
      the test projects and third-party packages are not part of the report. -->
 <RunSettings>
   <DataCollectionRunSettings>
