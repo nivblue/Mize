@@ -37,4 +37,26 @@ public class SqliteConnectionFactoryTests
 
         Assert.Equal(ConnectionState.Open, connection.State);
     }
+
+    /// <summary>An empty data source (SQLite then uses a private temporary database) needs no directory and works.</summary>
+    [Fact]
+    public async Task Constructor_EmptyDataSource_Works()
+    {
+        var factory = new SqliteConnectionFactory("Data Source=");
+
+        await using var connection = await factory.OpenConnectionAsync(CancellationToken.None);
+
+        Assert.Equal(ConnectionState.Open, connection.State);
+    }
+
+    /// <summary>When the database cannot be opened the error is thrown to the caller (the connection is cleaned up, not leaked).</summary>
+    [Fact]
+    public async Task OpenConnectionAsync_WhenTheDatabaseCannotBeOpened_Throws()
+    {
+        using var db = new TempDatabase();
+        var directoryAsDatabase = Path.GetDirectoryName(db.FilePath)!;   // a folder is not a database file
+        var factory = new SqliteConnectionFactory($"Data Source={directoryAsDatabase}");
+
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => factory.OpenConnectionAsync(CancellationToken.None));
+    }
 }

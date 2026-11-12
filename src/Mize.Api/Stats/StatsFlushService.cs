@@ -36,8 +36,11 @@ public sealed class StatsFlushService : BackgroundService
         using var timer = new PeriodicTimer(_interval);
         try
         {
-            while (await timer.WaitForNextTickAsync(stoppingToken))
+            // The only way out is cancellation: WaitForNextTickAsync returns false only if the timer is disposed, and this
+            // method owns the timer and disposes it when it ends, so the result never needs checking.
+            while (true)
             {
+                await timer.WaitForNextTickAsync(stoppingToken);
                 await FlushSafelyAsync(isFinal: false, stoppingToken);
             }
         }

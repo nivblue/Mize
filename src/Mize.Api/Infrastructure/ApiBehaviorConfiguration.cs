@@ -17,7 +17,7 @@ public static class ApiBehaviorConfiguration
     public static IActionResult CreateInvalidModelStateResponse(ActionContext context)
     {
         var errors = context.ModelState
-            .Where(entry => entry.Value is { Errors.Count: > 0 })
+            .Where(entry => entry.Value!.Errors.Count > 0)   // entries of a ModelStateDictionary are never null
             .ToDictionary(
                 entry => entry.Key,
                 entry => entry.Value!.Errors

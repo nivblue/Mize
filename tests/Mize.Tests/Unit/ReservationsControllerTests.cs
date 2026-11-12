@@ -65,6 +65,15 @@ public class ReservationsControllerTests
         _stats.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<IngestStatus>()), Times.Never);
     }
 
+    /// <summary>A status the controller does not know is a programming error and surfaces as an exception (HTTP 500), never as a silent 200.</summary>
+    [Fact]
+    public async Task Ingest_UnknownStatusFromTheService_Throws()
+    {
+        ServiceReturns((IngestStatus)99);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _controller.Ingest(TestData.Request(), CancellationToken.None));
+    }
+
     /// <summary>The "unchanged" message states clearly that nothing changed.</summary>
     [Fact]
     public async Task Ingest_Unchanged_MessageSaysNothingChanged()
