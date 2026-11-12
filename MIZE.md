@@ -248,7 +248,7 @@ with the periodic flush disabled, where the file had no `SupplierStats` rows bef
   incremented. `ingested` is the authoritative number.
 * **The first read of each supplier waits for the write gate**, so it can wait behind one in-flight ingest (milliseconds), once per supplier
   per process lifetime. Cached reads never wait for the gate.
-* **One cache entry per supplier is kept for the process lifetime** (no eviction), the same unbounded-growth property the rate limiter has.
+* **One cache entry per supplier is kept for the process lifetime** (no eviction), the same unbounded-growth property the rate limiter has; see [Known issue: unbounded memory per supplier id](#known-issue-unbounded-memory-per-supplier-id).
 * **Single writer assumption:** a second API instance, or someone editing the database by hand, would make cached counts stale until a restart.
   The `sqlite3` shell container is read-only by default for this reason.
 * **Cost of the SQL read** (measured on a throwaway database with 1,000,000 reservations, real schema, index-only scan): a supplier with
@@ -443,8 +443,73 @@ The `tests` service sets `VSTEST_DISABLE_ARTIFACTS_DIRECTORY_VERIFICATION=1` bec
 
 * The rate-limit window is in memory by decision (see [Statistics](#statistics-sql-is-the-source-of-truth-memory-is-a-cache)): a restart starts a clean window and several instances would each have their own. The write gate and the statistics cache are per process, too: one instance must be the only writer of the database.
 * After a hard crash the request counters can miss the last flush interval (5 seconds by default); `ingested` stays exact because it is read from the rows.
-* Rate-limit entries and statistics-cache entries per supplier are kept for the process lifetime (no eviction).
+* Rate-limit entries and statistics-cache entries per supplier are kept for the process lifetime (no eviction), and a supplier id has no length limit. See [Known issue: unbounded memory per supplier id](#known-issue-unbounded-memory-per-supplier-id) for the explanation, the measurements and the fix options.
 * No authentication: `supplierId` comes from the request body and is trusted.
+
+### Known issue: unbounded memory per supplier id
+
+**Status: open, documented for future reference. Nothing has been changed in the code for it.**
+
+#### What it is
+
+Two in-memory dictionaries are keyed by `supplierId`, and no code ever removes an entry (a search of `src/Mize.Api` finds no `TryRemove`,
+`Remove` or `Clear`):
+
+```
+ SlidingWindowRateLimiter._windows   supplierId -> a queue of up to 100 timestamps   (created on the supplier's first request)
+ SupplierStatsCache._entries         supplierId -> row count + counters              (created on its first recorded outcome)
+```
+
+Both live as long as the process does. A supplier whose 60-second window has long passed and whose queue is empty still keeps its entries.
+
+#### Why it matters
+
+* The `supplierId` comes from the request body and validation only checks that it is non-empty: **there is no maximum length**.
+* The throttle does not protect against it. The limit is per supplier, so a caller that sends every request with a new supplier id gets a
+  fresh quota of 100 each time, and every new id allocates new entries. The limiter amplifies the problem instead of preventing it.
+* The service has no authentication, so anyone who can reach it can rotate ids.
+
+#### Measured (real container, `mize-api` image)
+
+| Test | Result |
+|------|--------|
+| 200 suppliers (warm baseline) | 42.7 MiB |
+| after 20,000 more distinct short ids | 84.5 MiB (this batch also contained warm-up and not yet collected garbage, so it overstates the retained state) |
+| after another 20,000 | 95.6 MiB, i.e. **+11 MiB, about 0.57 KB retained per supplier** |
+| 300 requests, each with a new **100,000-character** supplier id | 95.6 -> 212.2 MiB, about **390 KB of growth per request** |
+
+* A supplier with a short id costs roughly half a kilobyte, so a million suppliers would be around 0.6 GB (an extrapolation, not measured).
+* A long id is the real hazard. 100,000 characters are about 200 KB as a .NET string (two bytes per character), kept as a dictionary key for the
+  life of the process; the measured growth was higher because the large request buffers are large-object garbage that is collected late. The default
+  request body limit is about 30 MB, so one 1 MB id would retain about 2 MB and a thousand of them about 2 GB. All 300 long-id requests were accepted
+  with HTTP 201, and the same data is also stored in SQLite, so the disk grows as well.
+
+#### What does not grow
+
+* The timestamp queue per supplier is capped at the limit (100 entries) and the counters have a fixed size.
+* A `GET` for an unknown supplier creates no cache entry (strict rule 5 of the statistics cache, covered by tests).
+* Invalid requests are rejected before the limiter, so they allocate nothing.
+
+#### Who can trigger it, and the consequence
+
+Honest use is safe: a few dozen or hundred real suppliers cost nothing. A hostile or buggy client can exhaust memory. The likely outcome is an
+out-of-memory kill followed by a restart (`restart: unless-stopped`), which clears every rate-limit window and loses up to one flush interval
+(5 seconds by default) of request counters.
+
+#### Fix options, cheapest first
+
+| # | Option | What it does | Cost and trade-off |
+|---|--------|--------------|--------------------|
+| 1 | Maximum id length (for example 128 characters) | Rejects absurd ids with HTTP 400 | A few lines in the validator plus tests; removes the worst amplification (the 200 KB keys) |
+| 2 | Sweep the limiter | A periodic task removes windows whose queue is empty; an empty window behaves exactly like no entry | Small; bounds limiter memory to recently active suppliers |
+| 3 | Evict idle statistics-cache entries | Drop entries that are idle and fully flushed; SQL holds the truth, so the next read reloads them | Medium; must respect the strict cache rules (write gate, flush lock, entry lock), so it needs care and tests |
+| 4 | Normalize ids (trim, case-insensitive) | Stops `acme`, `ACME` and `acme ` from being three suppliers | Changes how identity works, but it also closes the throttle bypass that comes from the same root cause |
+| 5 | A registry of known suppliers | Unknown ids are rejected, so memory is bounded by the real number of suppliers | The real-world answer, but a product decision the specification does not define; it goes together with authentication |
+| 6 | A container memory limit and an alert | Operational safety net | Does not fix the cause |
+
+Recommended order when this is picked up: options 1 and 2 first (small and safe), option 3 if completeness matters, and option 4 together with the
+throttle-bypass work. The specification states that production-level hardening is not expected, so this is a conscious, documented compromise for
+the scoped exercise.
 
 ## Optional future work
 
