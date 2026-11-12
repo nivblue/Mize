@@ -59,3 +59,8 @@ services:
         bad=$$(q "SELECT COUNT(*) FROM Reservations WHERE CheckIn NOT LIKE '%Z' OR CheckOut NOT LIKE '%Z' OR UpdatedAtUtc NOT LIKE '%Z';")
         [ "$$bad" = "0" ] || { echo "FAIL: $$bad rows with non-UTC timestamps"; exit 1; }
         echo "ok   every timestamp is stored as UTC"
+        [ "$$(q "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'SupplierStats';")" = "1" ] || { echo "FAIL: SupplierStats table is missing"; exit 1; }
+        echo "ok   SupplierStats table exists"
+        bad=$$(q "SELECT COUNT(*) FROM (SELECT r.SupplierId FROM Reservations r GROUP BY r.SupplierId HAVING COUNT(*) <> IFNULL((SELECT s.Created FROM SupplierStats s WHERE s.SupplierId = r.SupplierId), -1));")
+        [ "$$bad" = "0" ] || { echo "FAIL: $$bad suppliers whose saved created counter differs from their reservation rows (statistics were not flushed on shutdown?)"; exit 1; }
+        echo "ok   every supplier's saved created counter equals its reservation rows (the graceful-shutdown flush worked)"

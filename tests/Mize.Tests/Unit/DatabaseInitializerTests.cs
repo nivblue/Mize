@@ -26,6 +26,19 @@ public class DatabaseInitializerTests
         Assert.Equal(1, await CountReservationTablesAsync(db));
     }
 
+    /// <summary>The persisted-statistics table is created too.</summary>
+    [Fact]
+    public async Task Initialize_CreatesSupplierStatsTable()
+    {
+        using var db = new TempDatabase();
+
+        await new DatabaseInitializer(db.ConnectionFactory).InitializeAsync();
+
+        await using var connection = await db.ConnectionFactory.OpenConnectionAsync(CancellationToken.None);
+        Assert.Equal(1, await connection.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'SupplierStats';"));
+    }
+
     /// <summary>Running it again is harmless and keeps existing data.</summary>
     [Fact]
     public async Task Initialize_IsIdempotent_AndKeepsData()

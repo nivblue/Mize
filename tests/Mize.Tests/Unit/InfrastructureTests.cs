@@ -46,6 +46,21 @@ public class InfrastructureTests
         Assert.Equal(new[] { "bad" }, details.Errors["price"]);
     }
 
+    /// <summary>Model-state entries that carry no error (a valid field) are left out of the 400 response.</summary>
+    [Fact]
+    public void CreateInvalidModelStateResponse_IgnoresEntriesWithoutErrors()
+    {
+        var services = new ServiceCollection().AddLogging(b => b.AddProvider(new ListLoggerProvider())).BuildServiceProvider();
+        var context = new ActionContext(new DefaultHttpContext { RequestServices = services }, new RouteData(), new ActionDescriptor());
+        context.ModelState.SetModelValue("validField", "x", "x");                 // present, but no error
+        context.ModelState.AddModelError("brokenField", "is broken");
+
+        var result = ApiBehaviorConfiguration.CreateInvalidModelStateResponse(context);
+
+        var details = Assert.IsType<ValidationProblemDetails>(Assert.IsType<BadRequestObjectResult>(result).Value);
+        Assert.Equal(new[] { "brokenField" }, details.Errors.Keys);
+    }
+
     /// <summary>Binding errors become a 400 with the field errors and are logged at Warning.</summary>
     [Fact]
     public void CreateInvalidModelStateResponse_Returns400_AndLogsWarning()

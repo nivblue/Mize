@@ -84,9 +84,9 @@ public class ReservationFlowTests : IDisposable
         Assert.Equal(1, await CountRowsAsync());
         Assert.Contains(_factory.Logs.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning && e.Message.Contains("out-of-order"));
 
-        // 5. stats reflect all four requests
+        // 5. stats: ONE reservation was ingested (duplicates and updates do not add), the requests are in the breakdown
         var stats = (await _client.GetFromJsonAsync<SupplierStats>("/api/reservations/stats/supplier-1"))!;
-        Assert.Equal(4, stats.Ingested);
+        Assert.Equal(1, stats.Ingested);
         Assert.Equal(0, stats.Throttled);
         Assert.Equal(new IngestBreakdown(1, 2, 1), stats.Breakdown);
     }
