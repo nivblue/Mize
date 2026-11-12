@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Mize.Api.Data;
 using Mize.Api.RateLimiting;
 using Mize.Api.Services;
+using Mize.Api.Stats;
 
 namespace Mize.Tests.Helpers;
 
@@ -49,6 +50,9 @@ public sealed class MizeApiFactory : WebApplicationFactory<Program>
     /// <summary>When set, overrides <c>RateLimit:MaxRequests</c> (default is the real 100).</summary>
     public int? MaxRequests { get; init; }
 
+    /// <summary>When set, overrides <c>Stats:FlushIntervalSeconds</c> (default is the real 5 seconds).</summary>
+    public double? StatsFlushIntervalSeconds { get; init; }
+
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -71,6 +75,18 @@ public sealed class MizeApiFactory : WebApplicationFactory<Program>
             {
                 services.RemoveAll<IReservationRepository>();
                 services.AddSingleton(RepositoryOverride);
+
+                // A repository that also serves statistics replaces the SQL statistics repository too.
+                if (RepositoryOverride is IStatsRepository statsOverride)
+                {
+                    services.RemoveAll<IStatsRepository>();
+                    services.AddSingleton(statsOverride);
+                }
+            }
+
+            if (StatsFlushIntervalSeconds is { } seconds)
+            {
+                services.Configure<StatsOptions>(o => o.FlushIntervalSeconds = seconds);
             }
 
             if (MaxRequests is { } max)

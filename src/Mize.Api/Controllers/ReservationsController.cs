@@ -12,7 +12,7 @@ namespace Mize.Api.Controllers;
 
 /// <summary>
 /// Reservation endpoints. The ingest pipeline is: validate (400, Warning) → rate-limit (429, Warning)
-/// → ingest → record stats. Invalid requests are rejected before the limiter, so they never consume quota.
+/// → ingest. Invalid requests are rejected before the limiter, so they never consume quota.
 /// </summary>
 [ApiController]
 [Route("api/reservations")]
@@ -79,8 +79,8 @@ public sealed class ReservationsController : ControllerBase
             return ProblemResults.TooManyRequests(decision.RetryAfter);
         }
 
+        // The service records the outcome in the statistics itself (inside its write gate, right after the commit).
         var status = await _service.IngestAsync(request, cancellationToken);
-        _stats.RecordOutcome(request.SupplierId, status);
 
         var response = new IngestResponse(status, request.SupplierId, request.ReservationId, DescribeOutcome(status));
         return status == IngestStatus.Created
@@ -89,14 +89,17 @@ public sealed class ReservationsController : ControllerBase
     }
 
     /// <summary>
-    /// <c>GET /api/reservations/stats/{supplierId}</c>. Returns how many reservations were ingested and how many
-    /// requests were throttled for the supplier (zeros if the supplier has not been seen).
+    /// <c>GET /api/reservations/stats/{supplierId}</c>. Returns how many reservations were ingested (stored; duplicates and
+    /// updates do not add to it) and how many requests were throttled for the supplier, plus the per-outcome counters
+    /// (zeros if the supplier has not been seen). Served from the in-memory cache after one database read per supplier.
     /// </summary>
     /// <param name="supplierId">The supplier to report on (case-sensitive).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>HTTP 200 with <see cref="SupplierStats"/>.</returns>
     [HttpGet("stats/{supplierId}")]
     [ProducesResponseType(typeof(SupplierStats), StatusCodes.Status200OK)]
-    public ActionResult<SupplierStats> GetStats(string supplierId) => Ok(_stats.Get(supplierId));
+    public async Task<ActionResult<SupplierStats>> GetStats(string supplierId, CancellationToken cancellationToken) =>
+        Ok(await _stats.GetAsync(supplierId, cancellationToken));
 
     /// <summary>Maps an outcome to the human-readable message returned to the supplier.</summary>
     private static string DescribeOutcome(IngestStatus status) => status switch

@@ -35,9 +35,18 @@ builder.Services.AddSingleton<IDbConnectionFactory>(sp =>
 // Singletons: all of these are stateless or deliberately hold process-wide state (limiter, stats, write gate).
 builder.Services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
 builder.Services.AddSingleton<IReservationRepository, ReservationRepository>();
+builder.Services.AddSingleton<IWriteGate, WriteGate>();
+builder.Services.AddSingleton<IStatsRepository, StatsRepository>();
 builder.Services.AddSingleton<IReservationService, ReservationService>();
 builder.Services.AddSingleton<IRateLimiter, SlidingWindowRateLimiter>();
-builder.Services.AddSingleton<ISupplierStatsTracker, InMemorySupplierStatsTracker>();
+
+// Statistics: an in-memory cache over SQL (one cache instance serving both roles), flushed by a background service
+// every Stats:FlushIntervalSeconds and on graceful shutdown.
+builder.Services.AddOptions<StatsOptions>().Bind(builder.Configuration.GetSection(StatsOptions.SectionName));
+builder.Services.AddSingleton<SupplierStatsCache>();
+builder.Services.AddSingleton<ISupplierStatsTracker>(sp => sp.GetRequiredService<SupplierStatsCache>());
+builder.Services.AddSingleton<IStatsFlusher>(sp => sp.GetRequiredService<SupplierStatsCache>());
+builder.Services.AddHostedService<StatsFlushService>();
 builder.Services.AddSingleton<ReservationRequestValidator>();
 
 var app = builder.Build();

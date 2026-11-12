@@ -35,9 +35,9 @@ public class ReservationsControllerTests
     private void ServiceReturns(IngestStatus status) =>
         _service.Setup(s => s.IngestAsync(It.IsAny<ReservationRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(status);
 
-    /// <summary>A created reservation yields HTTP 201 with status "Created" and is counted.</summary>
+    /// <summary>A created reservation yields HTTP 201 with status "Created"; the controller leaves statistics to the service.</summary>
     [Fact]
-    public async Task Ingest_Created_Returns201_AndRecordsStats()
+    public async Task Ingest_Created_Returns201_AndLeavesOutcomeStatisticsToTheService()
     {
         ServiceReturns(IngestStatus.Created);
 
@@ -46,7 +46,7 @@ public class ReservationsControllerTests
         var obj = Assert.IsType<ObjectResult>(result);
         Assert.Equal(201, obj.StatusCode);
         Assert.Equal(IngestStatus.Created, Assert.IsType<IngestResponse>(obj.Value).Status);
-        _stats.Verify(s => s.RecordOutcome("supplier-1", IngestStatus.Created), Times.Once);
+        _stats.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<IngestStatus>()), Times.Never);
     }
 
     /// <summary>Updated and unchanged outcomes both yield HTTP 200 with the matching status and a message.</summary>
@@ -62,7 +62,7 @@ public class ReservationsControllerTests
         var body = Assert.IsType<IngestResponse>(Assert.IsType<OkObjectResult>(result).Value);
         Assert.Equal(status, body.Status);
         Assert.False(string.IsNullOrWhiteSpace(body.Message));
-        _stats.Verify(s => s.RecordOutcome("supplier-1", status), Times.Once);
+        _stats.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<IngestStatus>()), Times.Never);
     }
 
     /// <summary>The "unchanged" message states clearly that nothing changed.</summary>
@@ -120,14 +120,14 @@ public class ReservationsControllerTests
         _stats.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<IngestStatus>()), Times.Never);
     }
 
-    /// <summary>The stats endpoint returns whatever the tracker reports for the supplier.</summary>
+    /// <summary>The stats endpoint returns whatever the statistics cache reports for the supplier.</summary>
     [Fact]
-    public void GetStats_ReturnsTrackerSnapshot()
+    public async Task GetStats_ReturnsTheStatisticsSnapshot()
     {
         var snapshot = new SupplierStats("s", 5, 2, new IngestBreakdown(3, 1, 1));
-        _stats.Setup(s => s.Get("s")).Returns(snapshot);
+        _stats.Setup(s => s.GetAsync("s", It.IsAny<CancellationToken>())).ReturnsAsync(snapshot);
 
-        var result = _controller.GetStats("s");
+        var result = await _controller.GetStats("s", CancellationToken.None);
 
         Assert.Same(snapshot, Assert.IsType<OkObjectResult>(result.Result).Value);
     }

@@ -116,6 +116,12 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
 
         Assert.Equal(1, responses.Count(r => r.StatusCode == HttpStatusCode.Created));
         Assert.Equal(19, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
+
+        // The statistics agree: one reservation ingested, 19 duplicates counted separately.
+        var stats = await _api.Client.GetFromJsonAsync<JsonElement>($"/api/reservations/stats/{supplier}");
+        Assert.Equal(1, stats.GetProperty("ingested").GetInt32());
+        Assert.Equal(1, stats.GetProperty("breakdown").GetProperty("created").GetInt32());
+        Assert.Equal(19, stats.GetProperty("breakdown").GetProperty("unchanged").GetInt32());
     }
 
     /// <summary>Business-rule violations return 400 with the offending field and nothing is written.</summary>
@@ -170,7 +176,10 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
         Assert.Equal(0, stats.GetProperty("throttled").GetInt32());
     }
 
-    /// <summary>Stats count created, unchanged and updated outcomes (an older timestamp with new details counts as updated); invalid requests are not counted.</summary>
+    /// <summary>
+    /// Stats count created, unchanged and updated outcomes (an older timestamp with new details counts as updated); invalid
+    /// requests are not counted. "Ingested" is the number of reservations: four requests on one reservation are ONE.
+    /// </summary>
     [Fact]
     public async Task Stats_ReflectEveryOutcome()
     {
@@ -183,11 +192,47 @@ public class IngestFlowE2ETests : IClassFixture<E2EFixture>
 
         var stats = await _api.Client.GetFromJsonAsync<JsonElement>($"/api/reservations/stats/{supplier}");
 
-        Assert.Equal(4, stats.GetProperty("ingested").GetInt32());
+        Assert.Equal(1, stats.GetProperty("ingested").GetInt32());
         Assert.Equal(0, stats.GetProperty("throttled").GetInt32());
         var breakdown = stats.GetProperty("breakdown");
         Assert.Equal(1, breakdown.GetProperty("created").GetInt32());
         Assert.Equal(1, breakdown.GetProperty("unchanged").GetInt32());
         Assert.Equal(2, breakdown.GetProperty("updated").GetInt32());
+    }
+
+    /// <summary>Exact duplicates are never counted as ingested: they only show up in the breakdown.</summary>
+    [Fact]
+    public async Task Stats_DuplicatesAreNotIngested()
+    {
+        var supplier = E2EFixture.NewSupplierId();
+        await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1"));
+        for (var i = 0; i < 3; i++)
+        {
+            await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1"));
+        }
+
+        var stats = await _api.Client.GetFromJsonAsync<JsonElement>($"/api/reservations/stats/{supplier}");
+
+        Assert.Equal(1, stats.GetProperty("ingested").GetInt32());
+        Assert.Equal(3, stats.GetProperty("breakdown").GetProperty("unchanged").GetInt32());
+    }
+
+    /// <summary>
+    /// The periodic flush of the real container writes the counters into the SupplierStats table of the mounted SQLite file
+    /// (default interval 5 seconds), so they survive a restart.
+    /// </summary>
+    [Fact]
+    public async Task Stats_ArePersistedToTheSqliteFile_ByThePeriodicFlush()
+    {
+        var supplier = E2EFixture.NewSupplierId();
+        await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 1m));                                         // created
+        await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 1m));                                         // duplicate
+        await _api.Client.PostAsync(IngestUrl, Payload.Reservation(supplier, "r1", price: 2m, updatedAtUtc: "2026-07-02T00:00:00Z"));   // update
+
+        var saved = await _api.WaitForSavedStatsAsync(
+            supplier, s => s.Created == 1 && s.Updated == 1 && s.Unchanged == 1, TimeSpan.FromSeconds(30));
+
+        Assert.Equal(new StoredStats(1, 1, 1, 0), saved);
+        Assert.NotNull(await _api.ReadRowAsync(supplier, "r1"));   // and the reservation row the count is based on
     }
 }

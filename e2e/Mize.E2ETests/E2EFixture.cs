@@ -8,6 +8,13 @@ namespace Mize.E2ETests;
 /// <param name="UpdatedAtUtc">Stored updatedAtUtc, parsed from its ISO-8601 text form.</param>
 public sealed record StoredRow(string RoomId, decimal Price, DateTimeOffset UpdatedAtUtc);
 
+/// <summary>The counters the API saved for a supplier (the SupplierStats table).</summary>
+/// <param name="Created">Saved created count.</param>
+/// <param name="Updated">Saved updated count.</param>
+/// <param name="Unchanged">Saved unchanged (duplicate) count.</param>
+/// <param name="Throttled">Saved throttled count.</param>
+public sealed record StoredStats(long Created, long Updated, long Unchanged, long Throttled);
+
 /// <summary>
 /// Shared setup for E2E test classes: an HttpClient pointed at the running API, a way to wait until the API is up,
 /// and a read-only view of the API's SQLite file. Configuration comes from environment variables:
@@ -50,7 +57,53 @@ public sealed class E2EFixture : IAsyncLifetime
     /// <param name="supplierId">Supplier id.</param>
     /// <param name="reservationId">Reservation id.</param>
     /// <returns>The stored row, or null when no such reservation exists.</returns>
-    public async Task<StoredRow?> ReadRowAsync(string supplierId, string reservationId)
+    public Task<StoredRow?> ReadRowAsync(string supplierId, string reservationId) =>
+        QueryAsync(
+            "SELECT RoomId, Price, UpdatedAtUtc FROM Reservations WHERE SupplierId = $s AND ReservationId = $r;",
+            new() { ["$s"] = supplierId, ["$r"] = reservationId },
+            reader => new StoredRow(
+                reader.GetString(0),
+                decimal.Parse(reader.GetString(1), System.Globalization.CultureInfo.InvariantCulture),
+                DateTimeOffset.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture)));
+
+    /// <summary>
+    /// Reads the counters the API has flushed for a supplier into the SupplierStats table (read-only).
+    /// </summary>
+    /// <param name="supplierId">Supplier id.</param>
+    /// <returns>The saved counters, or null when nothing has been flushed for the supplier yet.</returns>
+    public Task<StoredStats?> ReadStatsRowAsync(string supplierId) =>
+        QueryAsync(
+            "SELECT Created, Updated, Unchanged, Throttled FROM SupplierStats WHERE SupplierId = $s;",
+            new() { ["$s"] = supplierId },
+            reader => new StoredStats(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3)));
+
+    /// <summary>Waits until a supplier's flushed counters satisfy a condition (the API flushes every few seconds), or fails after the timeout.</summary>
+    /// <param name="supplierId">Supplier id.</param>
+    /// <param name="condition">What the saved counters must satisfy.</param>
+    /// <param name="timeout">How long to wait.</param>
+    /// <returns>The saved counters that satisfied the condition.</returns>
+    public async Task<StoredStats> WaitForSavedStatsAsync(string supplierId, Func<StoredStats, bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            var saved = await ReadStatsRowAsync(supplierId);
+            if (saved is not null && condition(saved))
+            {
+                return saved;
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException($"The statistics of '{supplierId}' were not flushed as expected within {timeout.TotalSeconds}s; last saved: {saved}");
+            }
+
+            await Task.Delay(500);
+        }
+    }
+
+    /// <summary>Runs a read-only query against the SQLite file, retrying briefly when the API holds a lock, and maps the first row.</summary>
+    private async Task<T?> QueryAsync<T>(string sql, Dictionary<string, object> parameters, Func<SqliteDataReader, T> map) where T : class
     {
         if (string.IsNullOrEmpty(DatabasePath))
         {
@@ -61,25 +114,17 @@ public sealed class E2EFixture : IAsyncLifetime
         {
             try
             {
-                var connectionString = $"Data Source={DatabasePath};Mode=ReadOnly;Pooling=False";
-                await using var connection = new SqliteConnection(connectionString);
+                await using var connection = new SqliteConnection($"Data Source={DatabasePath};Mode=ReadOnly;Pooling=False");
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText =
-                    "SELECT RoomId, Price, UpdatedAtUtc FROM Reservations WHERE SupplierId = $s AND ReservationId = $r;";
-                command.Parameters.AddWithValue("$s", supplierId);
-                command.Parameters.AddWithValue("$r", reservationId);
-
-                await using var reader = await command.ExecuteReaderAsync();
-                if (!await reader.ReadAsync())
+                command.CommandText = sql;
+                foreach (var (name, value) in parameters)
                 {
-                    return null;
+                    command.Parameters.AddWithValue(name, value);
                 }
 
-                return new StoredRow(
-                    reader.GetString(0),
-                    decimal.Parse(reader.GetString(1), System.Globalization.CultureInfo.InvariantCulture),
-                    DateTimeOffset.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture));
+                await using var reader = await command.ExecuteReaderAsync();
+                return await reader.ReadAsync() ? map(reader) : null;
             }
             catch (SqliteException) when (attempt < 5)
             {

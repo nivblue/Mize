@@ -10,7 +10,7 @@ public interface IDatabaseInitializer
     Task InitializeAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Creates the <c>Reservations</c> table using <see cref="SqlQueries.CreateReservationsTable"/>.</summary>
+/// <summary>Creates the <c>Reservations</c> and <c>SupplierStats</c> tables (see <see cref="SqlQueries"/>).</summary>
 public sealed class DatabaseInitializer : IDatabaseInitializer
 {
     private readonly IDbConnectionFactory _connectionFactory;
@@ -27,5 +27,6 @@ public sealed class DatabaseInitializer : IDatabaseInitializer
     {
         await using var connection = await _connectionFactory.OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition(SqlQueries.CreateReservationsTable, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition(SqlQueries.CreateSupplierStatsTable, cancellationToken: cancellationToken));
     }
 }
